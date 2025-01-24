@@ -3,6 +3,7 @@ package comptoirs.service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import comptoirs.entity.Produit;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -106,8 +107,30 @@ public class CommandeService {
      */
     @Transactional
     public Ligne ajouterLigne(int commandeNum, int produitRef, @Positive int quantite) {
-        // TODO : implémenter cette méthode
-        throw new UnsupportedOperationException("Pas encore implémenté");
+        Commande commande = commandeDao.findById(commandeNum)
+            .orElseThrow(() -> new IllegalArgumentException("Commande non trouvée"));
+        if (commande.getEnvoyeele() != null) {
+            throw new IllegalStateException("La commande est déjà expédiée");
+        }
+
+        Produit produit = produitDao.findById(produitRef)
+            .orElseThrow(() -> new IllegalArgumentException("Produit non trouvé"));
+        if (produit.isIndisponible()) {
+            throw new IllegalStateException("Produit indisponible");
+        }
+
+        int stockDisponible = produit.getUnitesEnStock() - produit.getUnitesCommandees();
+        if (quantite > stockDisponible) {
+            throw new IllegalStateException("Stock insuffisant");
+        }
+
+        produit.setUnitesCommandees(produit.getUnitesCommandees() + quantite);
+        produitDao.save(produit);
+
+        Ligne ligne = new Ligne(commande, produit, quantite);
+        ligneDao.save(ligne);
+
+        return ligne;
     }
 
     /**
@@ -130,7 +153,22 @@ public class CommandeService {
      */
     @Transactional
     public Commande enregistreExpedition(int commandeNum) {
-        // TODO : implémenter cette méthode
-        throw new UnsupportedOperationException("Pas encore implémenté");
+        Commande commande = commandeDao.findById(commandeNum)
+            .orElseThrow(() -> new IllegalArgumentException("Commande non trouvée"));
+
+        if (commande.getEnvoyeele() != null) {
+            throw new IllegalStateException("Commande déjà expédiée");
+        }
+
+        commande.setEnvoyeele(LocalDate.now());
+
+        for (Ligne ligne : commande.getLignes()) {
+            Produit produit = ligne.getProduit();
+            produit.setUnitesCommandees(produit.getUnitesCommandees() - ligne.getQuantite());
+            produit.setUnitesEnStock(produit.getUnitesEnStock() - ligne.getQuantite());
+            produitDao.save(produit);
+        }
+
+        return commandeDao.save(commande);
     }
 }
